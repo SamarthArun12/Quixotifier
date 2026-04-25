@@ -7,11 +7,12 @@ from datetime import datetime
 import asyncio
 import json
 import sqlite3
+import traceback
 
 #super small 1 day project for personal use
 #is now like 1 week project I am actually going to deploy
-#AI use: dotenv stuff, and sqlite and json stuff ai generated
-# helping me figure out what libraries to use
+#AI use: dotenv, gemini api call, json stuff ai generated
+# helping me figure out what libraries to use (ex sqlite for better storage than txt files, traceback for better errors in errors.db etc.)
 
 #getting api keys
 load_dotenv()
@@ -83,18 +84,22 @@ async def ryoshify(interaction: discord.Interaction, text: str):
 
         message = string
         #adds info to log
-        with open("log.txt", "a") as file:
-            file.write(f"[{datetime.now()}] || COMMAND: Ryoshify || INPUT: {text} || FROM: {user} || OUTPUT: {message}\n")
-        with open("sinclair_translator.txt", "a") as file:
-            file.write(f"[{datetime.now()}] || COMMAND: Ryoshify || INPUT: {text} || FROM: {user} || OUTPUT: {message}\n")
-
+        with sqlite3.connect("bot.db") as conn:
+            #1st used by sinclair translator to reverse ryoshify, 2nd general logs
+            conn.execute("INSERT INTO ryoshify (timestamp, input, output, user) VALUES (?,?,?,?)",
+                         (str(datetime.now()), text, message, str(user)))
+            conn.execute("INSERT INTO logs (timestamp, command, input, output, user) VALUES (?,?,?,?,?)",
+                         (str(datetime.now()), "Ryoshify", text, message, str(user)))
+            
     except Exception as e:
         print(f"Error: {str(e)}")
         message = "I.A.B."
+        e_details = traceback.format_exc()
 
         #adds error info to log
-        with open("log.txt", "a") as file:
-            file.write(f"[{datetime.now()}] || COMMAND: Ryoshify ||  INPUT: {text} || FROM: {user} || ERROR: {str(e)}\n")
+        with sqlite3.connect("errors.db") as conn:
+            conn.execute("INSERT INTO errors (timestamp, command, input, error, user) VALUES (?,?,?,?,?)", 
+                         (str(datetime.now()), "Ryoshify", text, str(e_details), str(user)))
 
     #sends the message
     await interaction.response.send_message(message)
@@ -113,30 +118,29 @@ async def sinclair_translator(interaction: discord.Interaction, text: str):
         return
 
     try:
-        string = None
-        #looks in log for an output of user-inputted text
-        with open("sinclair_translator.txt", "r") as file:
-            for log in file:
-                #parse_log_line returns a dictionary
-                temp = parse_log_line(log.strip())
-                if temp["OUTPUT"] == text:
-                    string = temp["INPUT"]
-
-        if string:
-            message = string 
+        with sqlite3.connect("bot.db") as conn:
+            tuple = conn.execute("SELECT * FROM ryoshify WHERE output = ? ORDER BY id DESC LIMIT 1", (text,)).fetchone()
+        if tuple:
+            message = tuple[2] 
         else:
-            message = "Can't translate :<"
-        #adds info to log
-        with open("log.txt", "a") as file:
-            file.write(f"[{datetime.now()}] || COMMAND: Sinclair translate || INPUT: {text} || FROM: {user} || OUTPUT: {message}\n")
+            #factual statement
+            message = "Can't translate cuz I'm a pathetic useless coward"
+
+        with sqlite3.connect("bot.db") as conn:
+            conn.execute("INSERT INTO logs (timestamp, command, input, output, user) VALUES (?, ?, ?, ?, ?)", (str(datetime.now()), "sinclair_translator", text, message, str(user)))
+
 
     except Exception as e:
         print(f"Error: {str(e)}")
         message = "I-I'm broken."
+        e_details = traceback.format_exc()
 
         #adds error info to log
-        with open("log.txt", "a") as file:
-            file.write(f"[{datetime.now()}] || COMMAND: Sinclair translate ||  INPUT: {text} || FROM: {user} || ERROR: {str(e)}\n")
+        with sqlite3.connect("errors.db") as conn:
+            conn.execute(
+            "INSERT INTO errors (timestamp, command, input, error, user) VALUES (?, ?, ?, ?, ?)",
+            (str(datetime.now()), "sinclair_translator", text, str(e_details), str(user))
+            )
 
     #sends the message
     await interaction.response.send_message(message)
@@ -177,22 +181,17 @@ async def execute_command(sinner, text, interaction):
                 (str(datetime.now()), sinner, text, message, str(user))
             )
          
-        #with open("log.txt", "a") as file:
-        #   file.write(f"[{datetime.now()}] || COMMAND: Quixotify || INPUT: {text} || FROM: {user} || OUTPUT: {message}\n")
-
     except Exception as e:
         print(f"Error: {str(e)}")
         message = "Alas it appeareth that I am out of service! Tis truly a most lamentable occurence!"
+        e_details = traceback.format_exc()
 
         #adds error info to log 
         with sqlite3.connect("errors.db") as conn:
             conn.execute(
             "INSERT INTO errors (timestamp, command, input, error, user) VALUES (?, ?, ?, ?, ?)",
-            (str(datetime.now()), sinner, text, e, str(user))
+            (str(datetime.now()), sinner, text, str(e_details), str(user))
             )
-
-        with open("log.txt", "a") as file:
-            file.write(f"[{datetime.now()}] || COMMAND: Quixotify || INPUT: {text} || FROM: {user} || ERROR: {str(e)}\n")
 
     #actually sends the message
     await interaction.followup.send(message)
