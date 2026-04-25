@@ -2,5 +2,3 @@
 venv/
 __pycache__/
 log.txt
-sinclair_translator.txt
-blacklist.txt

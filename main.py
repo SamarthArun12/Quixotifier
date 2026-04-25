@@ -5,10 +5,13 @@ from discord import app_commands
 import os
 from datetime import datetime
 import asyncio
-import aiofiles
+import json
+import sqlite3
 
 #super small 1 day project for personal use
 #is now like 1 week project I am actually going to deploy
+#AI use: dotenv stuff, and sqlite and json stuff ai generated
+# helping me figure out what libraries to use
 
 #getting api keys
 load_dotenv()
@@ -35,12 +38,8 @@ class disc_class(discord.Client):
     async def setup_hook(self):
         await self.tree.sync()
 
-
-
 bot = disc_class()
 
-def execute_command(sinner, input):
-    pass
 
 blacklist = []
 #checks if a uid is in blacklist (txt file)
@@ -61,6 +60,59 @@ def parse_log_line(line):
             result[key.strip()] = value.strip()
     return result
 
+prompts = {}
+async def execute_command(sinner, text, interaction):
+    promptInfo = prompts[sinner]
+    instructions = promptInfo["Instructions"]
+    examples = " | ".join(promptInfo["Examples"])
+    rejection = promptInfo["Blacklisted"]
+
+    user = interaction.user
+    if is_blacklisted(user.id):
+        await interaction.response.send_message(rejection)
+        return
+    
+    #required so discord doesn't cut the bot off if takes too long
+    #must be after blacklist check or blacklist cant send
+    await interaction.response.defer()
+    
+    generalInstructions = "Roughly match input length. Text in parentheses = extra instructions. Only output the translation, nothing else. Make sure to preserve noun, account for incorrect grammer/slang. Don't add extra nouns/context beyond what is provided. If unclear respond with 'k'. Translate this text:"
+    prompt = instructions + examples + generalInstructions + text
+
+    try:
+        #next 5 lines ai generated
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, lambda: ai_client.models.generate_content(
+            model="gemini-3.1-flash-lite-preview",
+                        contents=prompt
+        ))
+
+        message = response.text
+        #adds info to log
+        with sqlite3.connect("bot.db") as conn:
+            conn.execute(
+                "INSERT INTO logs (timestamp, command, input, output, user) VALUES (?, ?, ?, ?, ?)",
+                (str(datetime.now()), sinner, text, message, str(user))
+            )
+         
+        #with open("log.txt", "a") as file:
+        #   file.write(f"[{datetime.now()}] || COMMAND: Quixotify || INPUT: {text} || FROM: {user} || OUTPUT: {message}\n")
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        message = "Alas it appeareth that I am out of service! Tis truly a most lamentable occurence!"
+
+        #adds error info to log 
+        with sqlite3.connect("errors.db") as conn:
+            "INSERT INTO errors (timestamp, command, input, error, user) VALUES (?, ?, ?, ?, ?)"
+            (str(datetime.now()), sinner, text, e, str(user))
+
+        with open("log.txt", "a") as file:
+            file.write(f"[{datetime.now()}] || COMMAND: Quixotify || INPUT: {text} || FROM: {user} || ERROR: {str(e)}\n")
+
+    #actually sends the message
+    await interaction.followup.send(message)
+
 #perms n setup stuff
 @bot.tree.command(name="quixotify", description="Quixotify your text")
 @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
@@ -70,7 +122,7 @@ async def quixotify(interaction: discord.Interaction, text: str):
     user = interaction.user
     #stop user if they are banned
     if is_blacklisted(user.id):
-        await interaction.response.send_message("Nay, I shan't allow a villain such as thee to use mine services most escpecial")
+        await interaction.response.send_message("Nay, I shan't allow a villain such as thee to use mine services!")
         return
 
     #required so discord doesn't cut the bot off if takes too long
@@ -100,6 +152,7 @@ async def quixotify(interaction: discord.Interaction, text: str):
     #actually sends the message
     await interaction.followup.send(message)
 
+#connect to sqlite l8r
 #perms n setup stuff
 @bot.tree.command(name="ryoshify", description="Ryoshify your text")
 @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
@@ -137,6 +190,7 @@ async def ryoshify(interaction: discord.Interaction, text: str):
     #sends the message
     await interaction.response.send_message(message)
 
+#connect to sqlite l8r
 #perms n setup stuff
 @bot.tree.command(name="sinclair_translator", description="Translate ryoshified text!")
 @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
@@ -153,9 +207,9 @@ async def sinclair_translator(interaction: discord.Interaction, text: str):
         string = None
         #looks in log for an output of user-inputted text
         with open("sinclair_translator.txt", "r") as file:
-            for log in file.read().splitlines():
+            for log in file:
                 #parse_log_line returns a dictionary
-                temp = parse_log_line(log)
+                temp = parse_log_line(log.strip())
                 if temp["OUTPUT"] == text:
                     string = temp["INPUT"]
 
@@ -256,4 +310,49 @@ async def hongify(interaction: discord.Interaction, text: str):
     #actually sends the message
     await interaction.followup.send(message)
 
+def init():
+    with sqlite3.connect("bot.db") as connection:
+        #creates the logs
+        #INTEGER PRIMARY KEY AUTOINCREMENT assigns an id to each entry, TEXT is the input type (str int etc)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                command TEXT,
+                input TEXT,
+                output TEXT,
+                user TEXT
+            )
+        """),
+        #used by sinclair_translator to reverse ryoshified texts
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS ryoshify (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                input TEXT,
+                output TEXT,
+                user TEXT
+            )
+        """)
+    print("logs sqlite initialized")
+
+    #i made this one myself no ai no reference :D 
+    with sqlite3.connect("errors.db") as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS errors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT,
+                    command TEXT,
+                    input TEXT,
+                    error TEXT,
+                    user TEXT
+            )           
+        """)
+    print("errors sqlite initialized")
+
+    with open("sinners.json", "r", encoding='utf-8') as file:
+        prompts = json.load(file)
+    print("prompts loaded from json")
+
+init()
 bot.run(disc_client)
