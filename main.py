@@ -244,7 +244,15 @@ def init():
                 user TEXT
             )
         """)
+        #testing new ver of ryoshify and sinclair_translator
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS newRyoTest (
+                unAbbreviated TEXT,      
+                abbreviated TEXT PRIMARY KEY    
+            )
+        """)
     print("logs sqlite initialized")
+
     #i made this one myself no ai no reference :D 
     with sqlite3.connect("errors.db") as conn:
         conn.execute("""
