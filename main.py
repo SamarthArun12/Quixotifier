@@ -41,15 +41,24 @@ class disc_class(discord.Client):
 
 bot = disc_class()
 
-
+#stuff to make blacklisting work
 blacklist = []
 #checks if a uid is in blacklist (txt file)
 def is_blacklisted(uid):
-    with open("blacklist.txt", "r") as file:
-        for id in file.read().splitlines():
-            if id == uid:
-                return True
+    with sqlite3.connect("blacklist.db") as conn:
+        isBlacklisted = conn.execute("SELECT user FROM blacklisted WHERE uid = ?", (uid,)).fetchone()
+    if isBlacklisted:
+        return True
+    else:
         return False
+def blacklist_uid(uid, user):
+    with sqlite3.connect("blacklist.db") as conn:
+        conn.execute("INSERT OR IGNORE INTO blacklisted (uid, user) VALUES (?,?)", (uid, user))
+    print(f"blacklisted uid: {uid}")
+def unblacklist_uid(uid):
+    with sqlite3.connect("blacklist.db") as conn:
+        conn.execute("DELETE FROM blacklisted where uid = ?", (uid,))
+    print(f"unblacklisted uid {uid}")
 
 #parses lines in logs and turns them into an easily accessible dictionary
 def parse_log_line(line):
@@ -60,6 +69,14 @@ def parse_log_line(line):
             key, value = part.split(": ", 1)
             result[key.strip()] = value.strip()
     return result
+
+#inserts stuff to appropriate db
+def insert_to_db(dbName, table, command, input, output, user):
+    with sqlite3.connect(dbName) as conn:
+        #f string for table is ok
+        conn.execute(f"INSERT INTO {table} (command, input, output, user) VALUES (?,?,?,?)",
+                    (command, input, output, str(user))
+                     )
 
 #commands that dont require gemini api
 #connect to sqlite l8r
@@ -84,22 +101,20 @@ async def ryoshify(interaction: discord.Interaction, text: str):
 
         message = string
         #adds info to log
+        #ryoshify table isn't in function b/c the table lacks a "command" column and hard writing it is simply easier
         with sqlite3.connect("bot.db") as conn:
             #1st used by sinclair translator to reverse ryoshify, 2nd general logs
             conn.execute("INSERT INTO ryoshify (timestamp, input, output, user) VALUES (?,?,?,?)",
                          (str(datetime.now()), text, message, str(user)))
-            conn.execute("INSERT INTO logs (timestamp, command, input, output, user) VALUES (?,?,?,?,?)",
-                         (str(datetime.now()), "Ryoshify", text, message, str(user)))
-            
+        insert_to_db("bot.db", "logs", "Ryoshify", text, message, user)
+
     except Exception as e:
         print(f"Error: {str(e)}")
         message = "I.A.B."
         e_details = traceback.format_exc()
 
         #adds error info to log
-        with sqlite3.connect("errors.db") as conn:
-            conn.execute("INSERT INTO errors (timestamp, command, input, error, user) VALUES (?,?,?,?,?)", 
-                         (str(datetime.now()), "Ryoshify", text, str(e_details), str(user)))
+        insert_to_db("errors.db", "errors", "Ryoshify", text, str(e_details), str(user))
 
     #sends the message
     await interaction.response.send_message(message)
@@ -126,9 +141,8 @@ async def sinclair_translator(interaction: discord.Interaction, text: str):
             #factual statement
             message = "Can't translate cuz I'm a pathetic useless coward"
 
-        with sqlite3.connect("bot.db") as conn:
-            conn.execute("INSERT INTO logs (timestamp, command, input, output, user) VALUES (?, ?, ?, ?, ?)", (str(datetime.now()), "sinclair_translator", text, message, str(user)))
-
+        #insert data to db
+        insert_to_db("bot.db", "logs", "sinclair_translator", text, message, user)
 
     except Exception as e:
         print(f"Error: {str(e)}")
@@ -136,11 +150,7 @@ async def sinclair_translator(interaction: discord.Interaction, text: str):
         e_details = traceback.format_exc()
 
         #adds error info to log
-        with sqlite3.connect("errors.db") as conn:
-            conn.execute(
-            "INSERT INTO errors (timestamp, command, input, error, user) VALUES (?, ?, ?, ?, ?)",
-            (str(datetime.now()), "sinclair_translator", text, str(e_details), str(user))
-            )
+        insert_to_db("errors.db", "errors", "sinclair_translator", text, e_details, user)
 
     #sends the message
     await interaction.response.send_message(message)
@@ -175,11 +185,7 @@ async def execute_command(sinner, text, interaction):
 
         message = response.text
         #adds info to log
-        with sqlite3.connect("bot.db") as conn:
-            conn.execute(
-                "INSERT INTO logs (timestamp, command, input, output, user) VALUES (?, ?, ?, ?, ?)",
-                (str(datetime.now()), sinner, text, message, str(user))
-            )
+        insert_to_db("bot.db", "logs", sinner, text, message, user)
          
     except Exception as e:
         print(f"Error: {str(e)}")
@@ -187,11 +193,7 @@ async def execute_command(sinner, text, interaction):
         e_details = traceback.format_exc()
 
         #adds error info to log 
-        with sqlite3.connect("errors.db") as conn:
-            conn.execute(
-            "INSERT INTO errors (timestamp, command, input, error, user) VALUES (?, ?, ?, ?, ?)",
-            (str(datetime.now()), sinner, text, str(e_details), str(user))
-            )
+        insert_to_db("errors.db", "errors", sinner, text, message, user)
 
     #actually sends the message
     await interaction.followup.send(message)
@@ -236,14 +238,13 @@ def init():
         connection.execute("""
             CREATE TABLE IF NOT EXISTS ryoshify (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 input TEXT,
                 output TEXT,
                 user TEXT
             )
         """)
     print("logs sqlite initialized")
-
     #i made this one myself no ai no reference :D 
     with sqlite3.connect("errors.db") as conn:
         conn.execute("""
@@ -252,11 +253,19 @@ def init():
                     timestamp TEXT,
                     command TEXT,
                     input TEXT,
-                    error TEXT,
+                    output TEXT,
                     user TEXT
             )           
         """)
     print("errors sqlite initialized")
+    with sqlite3.connect("blacklist.db") as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS blacklisted (
+        uid INTEGER PRIMARY KEY,
+        user TEXT
+        )
+    """)
+    print("blacklist sqlite initialized")
 
     with open("sinners.json", "r", encoding='utf-8') as file:
         prompts = json.load(file)
@@ -264,4 +273,6 @@ def init():
     print(prompts.keys())
 
 init()
+blacklist_uid(1232910902525952020, "berry")
+unblacklist_uid(1232910902525952020)
 bot.run(disc_client)
