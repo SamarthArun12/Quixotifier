@@ -222,7 +222,7 @@ async def execute_command(sinner, text, interaction):
     #must be after blacklist check or blacklist cant send
     await interaction.response.defer()
     
-    generalInstructions = "Do not translate examples, they are for reference only. Roughly match input length. Text in parentheses = extra instructions. Only output the translation, nothing else. Make sure to preserve noun, account for incorrect grammer/slang. DO NOT add extra nouns/context beyond what is provided. If unclear respond with 'k'. Translate this text:"
+    generalInstructions = "Do not translate examples, they are for reference only. Roughly match input length. Text in parentheses = extra instructions. Only output the translation, nothing else. Make sure to preserve noun, account for incorrect grammer/slang. DO NOT add extra nouns/context beyond what is provided. If unclear respond with 'k'. You are TRANSLATING NOT RESPONDING. Translate this text:"
     prompt = instructions + examples + generalInstructions + text
 
     try:
@@ -268,6 +268,13 @@ async def outify(interaction: discord.Interaction, text: str):
 @app_commands.allowed_installs(guilds=True, users=True)
 async def hongify(interaction: discord.Interaction, text: str):
     await execute_command("Hongify", text, interaction)
+
+#perms n setup stuff
+@bot.tree.command(name="gregify", description="Gregify your text")
+@app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+@app_commands.allowed_installs(guilds=True, users=True)
+async def hongify(interaction: discord.Interaction, text: str):
+    await execute_command("Gregify", text, interaction)
 
 def init():
     global prompts
