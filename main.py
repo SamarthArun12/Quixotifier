@@ -211,6 +211,7 @@ async def execute_command(sinner, text, interaction):
     instructions = promptInfo["Instructions"]
     examples = "Examples of char speech: "+ " | ".join(promptInfo["Examples"])
     rejection = promptInfo["Blacklisted"]
+    outOfService = promptInfo["OutOfService"]
 
     user = interaction.user
     if is_blacklisted(user.id):
@@ -238,7 +239,7 @@ async def execute_command(sinner, text, interaction):
          
     except Exception as e:
         print(f"Error: {str(e)}")
-        message = "Alas it appeareth that I am out of service! Tis truly a most lamentable occurence!"
+        message = outOfService
         e_details = traceback.format_exc()
 
         #adds error info to log 
