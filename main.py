@@ -78,6 +78,51 @@ def insert_to_db(dbName, table, command, input, output, user):
                     (command, input, output, str(user))
                      )
 
+#more efficient than a list
+common_words = {"and", "the", "to", "is", "for", "will", "then", "after", "there", "where", "should", "would", "you", "in", "have", "been"}
+accepted_special = {"?!."}
+def ryoshify_text(text):
+    words = text.split(" ")
+    #currentSection and currentSectionNonAbbrev keep the abbreviated and the nonabbreviated forms of the current section
+    currentSection = []
+    currentSectionNonAbbrev = []
+    #pairs stores all abbreviated and unabbreviated pairs for later storage in db
+    pairs = []
+    #sections stores all the individual sections to be .join() later
+    sections = []
+    for word in words:
+        #find a better check l8r, for testing use this
+        if not word.isalpha() and not word.isdigit(): continue
+        if word in common_words:
+            if currentSection:
+                #creating the current pair and storing it
+                currentAbbr = ".".join(currentSection)+"."
+                currentNonAbbr = " ".join(currentSectionNonAbbrev)
+                pairs.append((currentNonAbbr, currentAbbr))
+
+                sections.append(currentAbbr)
+                currentSection = []
+                currentSectionNonAbbrev = []
+            sections.append(word)
+        else:
+            currentSection.append(word[0].upper())
+            currentSectionNonAbbrev.append(word)
+    if currentSection:
+        currentNonAbbr = " ".join(currentSectionNonAbbrev)
+        currentAbbr = ".".join(currentSection)+"."
+        sections.append(currentAbbr)
+        pairs.append((currentNonAbbr, currentAbbr))
+
+    with sqlite3.connect("bot.db") as conn:
+        for pair in pairs:
+            conn.execute("INSERT OR REPLACE INTO newRyoTest (unAbbreviated, abbreviated) VALUES (?, ?)",
+                         (pair[0], pair[1]))
+            print(pair)
+
+
+    final_string = " ".join(sections)
+    return final_string
+
 #commands that dont require gemini api
 #connect to sqlite l8r
 #perms n setup stuff
@@ -91,13 +136,12 @@ async def ryoshify(interaction: discord.Interaction, text: str):
     if is_blacklisted(user.id):
         await interaction.response.send_message("Y.A.B.")
         return
+    
+    await interaction.response.defer()
 
     try:
         #turns text into acronyms
-        words = text.split(" ")
-        string = ""
-        for word in words:
-            string += word[0].upper() + "."
+        string = ryoshify_text(text)
 
         message = string
         #adds info to log
@@ -117,11 +161,11 @@ async def ryoshify(interaction: discord.Interaction, text: str):
         insert_to_db("errors.db", "errors", "Ryoshify", text, str(e_details), str(user))
 
     #sends the message
-    await interaction.response.send_message(message)
+    await interaction.followup.send(message)
 
 #connect to sqlite l8r
 #perms n setup stuff
-@bot.tree.command(name="sinclair_translator", description="Translate ryoshified text!")
+@bot.tree.command(name="sinclair-the-translator", description="Translate ryoshified text!")
 @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
 @app_commands.allowed_installs(guilds=True, users=True)
 async def sinclair_translator(interaction: discord.Interaction, text: str):
@@ -132,14 +176,19 @@ async def sinclair_translator(interaction: discord.Interaction, text: str):
         await interaction.response.send_message("y-you're banned.")
         return
 
+    await interaction.response.defer()
+
     try:
         with sqlite3.connect("bot.db") as conn:
-            tuple = conn.execute("SELECT * FROM ryoshify WHERE output = ? ORDER BY id DESC LIMIT 1", (text,)).fetchone()
-        if tuple:
-            message = tuple[2] 
-        else:
-            #factual statement
-            message = "Can't translate cuz I'm a pathetic useless coward"
+            firstTry = conn.execute("SELECT * FROM newRyoTest WHERE abbreviated = ?", (text,)).fetchone()
+            if not firstTry:
+                tuple = conn.execute("SELECT * FROM ryoshify WHERE output = ? ORDER BY id DESC LIMIT 1", (text,)).fetchone()
+                message = tuple[2] 
+            else:
+                message = firstTry[0] 
+            if not firstTry and not tuple:
+                #factual statement
+                message = "Can't translate cuz I'm a pathetic useless coward"
 
         #insert data to db
         insert_to_db("bot.db", "logs", "sinclair_translator", text, message, user)
@@ -153,7 +202,7 @@ async def sinclair_translator(interaction: discord.Interaction, text: str):
         insert_to_db("errors.db", "errors", "sinclair_translator", text, e_details, user)
 
     #sends the message
-    await interaction.response.send_message(message)
+    await interaction.followup.send(message)
 
 #commands that require gemini api
 prompts = {}
@@ -281,6 +330,7 @@ def init():
     print(prompts.keys())
 
 init()
-blacklist_uid(1232910902525952020, "berry")
-unblacklist_uid(1232910902525952020)
-bot.run(disc_client)
+try:
+    bot.run(disc_client)
+except Exception as e:
+    bot.run(disc_client)
