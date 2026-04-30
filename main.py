@@ -79,7 +79,7 @@ def insert_to_db(dbName, table, command, input, output, user):
                      )
 
 #more efficient than a list
-common_words = {"and", "the", "to", "is", "for", "will", "then", "after", "there", "where", "should", "would", "you", "in", "have", "been"}
+common_words = {"and", "the", "to", "is", "for", "will", "then", "after", "there", "where", "should", "would", "you", "in", "have", "been", "when"}
 accepted_special = {"?!."}
 def ryoshify_text(text):
     words = text.split(" ")
@@ -207,6 +207,11 @@ async def sinclair_translator(interaction: discord.Interaction, text: str):
 #commands that require gemini api
 prompts = {}
 async def execute_command(sinner, text, interaction):
+    #required so discord doesn't cut the bot off if takes too long
+    #must be after blacklist check or blacklist cant send
+    #at the top cuz the db check for blacklist takes a bit
+    await interaction.response.defer()
+
     promptInfo = prompts[sinner]
     instructions = promptInfo["Instructions"]
     examples = "Examples of char speech: "+ " | ".join(promptInfo["Examples"])
@@ -215,12 +220,8 @@ async def execute_command(sinner, text, interaction):
 
     user = interaction.user
     if is_blacklisted(user.id):
-        await interaction.response.send_message(rejection)
+        await interaction.followup.send(rejection)
         return
-    
-    #required so discord doesn't cut the bot off if takes too long
-    #must be after blacklist check or blacklist cant send
-    await interaction.response.defer()
     
     generalInstructions = "Do not translate examples, they are for reference only. Roughly match input length. Text in parentheses = extra instructions. Only output the translation, nothing else. Make sure to preserve noun, account for incorrect grammer/slang. DO NOT add extra nouns/context beyond what is provided. If unclear respond with 'k'. You are TRANSLATING NOT RESPONDING. Translate this text:"
     prompt = instructions + examples + generalInstructions + text
