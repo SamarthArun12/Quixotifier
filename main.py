@@ -79,7 +79,8 @@ def insert_to_db(dbName, table, command, input, output, user):
                      )
 
 #more efficient than a list
-common_words = {"and", "the", "to", "is", "for", "will", "then", "after", "there", "where", "should", "would", "you", "in", "have", "been", "when"}
+common_words = {"and", "the", "to", "is", "for", "will", "then", "after", "there", "where", "should", "would", "you", "in", "have", "been", "when", "i", "i'm", "off", "will"}
+#not yet implemented
 accepted_special = {"?!."}
 def ryoshify_text(text):
     words = text.split(" ")
@@ -90,29 +91,36 @@ def ryoshify_text(text):
     pairs = []
     #sections stores all the individual sections to be .join() later
     sections = []
+    #iterates through words in inputted string n does stuff
     for word in words:
         #find a better check l8r, for testing use this
         if not word.isalpha() and not word.isdigit(): continue
+        #checks if the word is a common words (not to be abbreviated) and then does body
         if word in common_words:
+            #end the current section, reset it to nothing, and abbreviated oldsect and common_word to final
             if currentSection:
                 #creating the current pair and storing it
                 currentAbbr = ".".join(currentSection)+"."
                 currentNonAbbr = " ".join(currentSectionNonAbbrev)
                 pairs.append((currentNonAbbr, currentAbbr))
-
                 sections.append(currentAbbr)
+
+                #reset current section n stuff
                 currentSection = []
                 currentSectionNonAbbrev = []
             sections.append(word)
+        #if not a common word, continue with making the section as normal
         else:
             currentSection.append(word[0].upper())
             currentSectionNonAbbrev.append(word)
+    #cleans up the last section and makes sure its accounted for
     if currentSection:
         currentNonAbbr = " ".join(currentSectionNonAbbrev)
         currentAbbr = ".".join(currentSection)+"."
         sections.append(currentAbbr)
         pairs.append((currentNonAbbr, currentAbbr))
 
+    #inserting the log to db for sinclair_translator l8r
     with sqlite3.connect("bot.db") as conn:
         for pair in pairs:
             conn.execute("INSERT OR REPLACE INTO newRyoTest (unAbbreviated, abbreviated) VALUES (?, ?)",
@@ -131,13 +139,13 @@ def ryoshify_text(text):
 @app_commands.allowed_installs(guilds=True, users=True)
 async def ryoshify(interaction: discord.Interaction, text: str):
 
+    await interaction.response.defer()
+
     #stops blacklisted people
     user = interaction.user
     if is_blacklisted(user.id):
-        await interaction.response.send_message("Y.A.B.")
+        await interaction.followup.send("Y.A.B.")
         return
-    
-    await interaction.response.defer()
 
     try:
         #turns text into acronyms
@@ -150,8 +158,10 @@ async def ryoshify(interaction: discord.Interaction, text: str):
             #1st used by sinclair translator to reverse ryoshify, 2nd general logs
             conn.execute("INSERT INTO ryoshify (timestamp, input, output, user) VALUES (?,?,?,?)",
                          (str(datetime.now()), text, message, str(user)))
+        
         insert_to_db("bot.db", "logs", "Ryoshify", text, message, user)
 
+    #handles any errors that may pop up
     except Exception as e:
         print(f"Error: {str(e)}")
         message = "I.A.B."
@@ -170,22 +180,25 @@ async def ryoshify(interaction: discord.Interaction, text: str):
 @app_commands.allowed_installs(guilds=True, users=True)
 async def sinclair_translator(interaction: discord.Interaction, text: str):
 
+    await interaction.response.defer()
+
     #stops blacklisted people
     user = interaction.user
     if is_blacklisted(user.id):
-        await interaction.response.send_message("y-you're banned.")
+        await interaction.followup.send("y-you're banned.")
         return
 
-    await interaction.response.defer()
-
     try:
+        #checks if the inputted text can be found in the logs, if not check in general logs table, if can't find return a failure
+        #make this more robust and handle capitalization
         with sqlite3.connect("bot.db") as conn:
             firstTry = conn.execute("SELECT * FROM newRyoTest WHERE abbreviated = ?", (text,)).fetchone()
-            if not firstTry:
-                tuple = conn.execute("SELECT * FROM ryoshify WHERE output = ? ORDER BY id DESC LIMIT 1", (text,)).fetchone()
-                message = tuple[2] 
-            else:
+            if firstTry:
                 message = firstTry[0] 
+            else:
+                tuple = conn.execute("SELECT * FROM logs WHERE output = ? ORDER BY id DESC LIMIT 1", (text,)).fetchone()
+                if tuple:
+                    message = tuple[2] 
             if not firstTry and not tuple:
                 #factual statement
                 message = "Can't translate cuz I'm a pathetic useless coward"
@@ -285,7 +298,7 @@ def init():
         connection.execute("""
             CREATE TABLE IF NOT EXISTS logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT,
+                timestamp DATETEIME DEFAULT CURRENT_TIMESTAMP,
                 command TEXT,
                 input TEXT,
                 output TEXT,
@@ -316,7 +329,7 @@ def init():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS errors (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     command TEXT,
                     input TEXT,
                     output TEXT,
@@ -343,3 +356,9 @@ try:
     bot.run(disc_client)
 except Exception as e:
     bot.run(disc_client)
+
+'''
+TO DO:
+    Features:
+        More sinners
+'''
